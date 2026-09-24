@@ -3,11 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { RefreshCw, ArrowRight, ChevronLeft, Share2 } from 'lucide-react';
+import { RefreshCw, ArrowRight, ChevronLeft, Share2, Volume2, VolumeX } from 'lucide-react';
 import { ColorHSL, RoundResult, FUN_MESSAGES } from './types';
 import { oklab, differenceEuclidean } from 'culori';
+import { sounds } from './audio';
 
 const TOTAL_ROUNDS = 3;
 
@@ -18,6 +19,27 @@ export default function App() {
   const [targetColor, setTargetColor] = useState<ColorHSL>({ h: 0, s: 0, l: 0 });
   const [userGuess, setUserGuess] = useState<ColorHSL>({ h: 180, s: 50, l: 50 });
   const [results, setResults] = useState<RoundResult[]>([]);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+
+  // Throttle slider sounds so it feels responsive without overwhelming
+  const lastSliderAudioTime = useRef<number>(0);
+
+  const toggleSound = () => {
+    const next = !soundEnabled;
+    sounds.enabled = next;
+    setSoundEnabled(next);
+    if (next) {
+      sounds.playClick();
+    }
+  };
+
+  const playSliderAudio = (ratio: number) => {
+    const now = performance.now();
+    if (now - lastSliderAudioTime.current > 45) {
+      lastSliderAudioTime.current = now;
+      sounds.playSliderTick(ratio);
+    }
+  };
 
   const generateRandomColor = () => {
     return {
@@ -33,9 +55,11 @@ export default function App() {
     setUserGuess({ h: 180, s: 50, l: 50 });
     setCountdown(3);
     setGameState('memorize');
+    sounds.playTick(false);
   }, []);
 
   const startGame = () => {
+    sounds.playClick();
     setRound(1);
     setResults([]);
     startNextRound(1);
@@ -45,7 +69,13 @@ export default function App() {
     let timer: NodeJS.Timeout;
     if (gameState === 'memorize' && countdown > 0) {
       timer = setTimeout(() => {
-        setCountdown(prev => prev - 1);
+        const nextVal = countdown - 1;
+        setCountdown(nextVal);
+        if (nextVal > 0) {
+          sounds.playTick(false);
+        } else {
+          sounds.playTick(true);
+        }
       }, 1000);
     } else if (gameState === 'memorize' && countdown === 0) {
       setGameState('guess');
@@ -54,22 +84,18 @@ export default function App() {
   }, [gameState, countdown]);
 
   const calculateScore = (target: ColorHSL, guess: ColorHSL) => {
-    // Convert our HSL (0-360, 0-100, 0-100) to culori HSL (0-360, 0-1, 0-1)
     const targetCulori = { mode: 'hsl' as const, h: target.h, s: target.s / 100, l: target.l / 100 };
     const guessCulori = { mode: 'hsl' as const, h: guess.h, s: guess.s / 100, l: guess.l / 100 };
     
-    // Convert to OKLAB for perceptual comparison
     const targetOklab = oklab(targetCulori);
     const guessOklab = oklab(guessCulori);
     
-    // Calculate Euclidean distance in OKLAB space (Delta E)
     const diff = differenceEuclidean('oklab');
     const distance = diff(targetOklab, guessOklab);
     
     const maxDistance = 0.25;
     const accuracyRaw = Math.max(0, 1 - (distance / maxDistance));
     
-    // Non-linear mapping to reward close guesses
     const accuracy = Math.pow(accuracyRaw, 0.7);
     const score = Math.floor(accuracy * 1000);
     
@@ -81,14 +107,17 @@ export default function App() {
     const newResult: RoundResult = { target: targetColor, guess: userGuess, score, accuracy };
     setResults(prev => [...prev, newResult]);
     setGameState('reveal');
+    sounds.playReveal();
   };
 
   const handleNext = () => {
+    sounds.playClick();
     if (round < TOTAL_ROUNDS) {
       setRound(prev => prev + 1);
       startNextRound(round + 1);
     } else {
       setGameState('results');
+      sounds.playFanfare();
     }
   };
 
@@ -102,6 +131,7 @@ export default function App() {
   };
 
   const handleShare = async () => {
+    sounds.playClick();
     const totalScore = results.reduce((sum, r) => sum + r.score, 0);
     const text = `I scored ${totalScore} points in Hue Hunt! Can you beat my visual memory? 🎨✨`;
     const url = window.location.href;
@@ -128,6 +158,16 @@ export default function App() {
 
   return (
     <div className="fixed inset-0 bg-white flex flex-col overflow-y-auto overflow-x-hidden selection:bg-black selection:text-white">
+      {/* Sound Toggle Button */}
+      <button
+        onClick={toggleSound}
+        className="fixed top-4 right-4 z-50 p-2.5 bg-white/80 backdrop-blur-md hover:bg-white border border-gray-200/60 rounded-full shadow-sm text-gray-700 hover:text-black transition-all cursor-pointer"
+        aria-label={soundEnabled ? 'Mute sound' : 'Enable sound'}
+        title={soundEnabled ? 'Mute sound' : 'Enable sound'}
+      >
+        {soundEnabled ? <Volume2 size={18} /> : <VolumeX size={18} className="text-gray-400" />}
+      </button>
+
       <AnimatePresence mode="wait">
         {gameState === 'start' && (
           <motion.div
@@ -160,10 +200,10 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 z-50 flex flex-col items-center justify-between p-8 text-white"
+            className="absolute inset-0 z-40 flex flex-col items-center justify-between p-8 text-white"
             style={{ backgroundColor: hslToCss(targetColor) }}
           >
-            <div className="flex justify-between w-full font-bold tracking-widest text-xs opacity-80">
+            <div className="flex justify-between w-full font-bold tracking-widest text-xs opacity-80 pr-12">
               <span>ROUND {round} OF {TOTAL_ROUNDS}</span>
               <span>SCORE: {currentTotalScore}</span>
             </div>
@@ -191,7 +231,7 @@ export default function App() {
             exit={{ opacity: 0, scale: 1.05 }}
             className="flex-1 flex flex-col p-6 max-w-md mx-auto w-full min-h-full"
           >
-            <div className="flex justify-between w-full font-bold tracking-widest text-[10px] text-gray-400 mb-8 pt-4">
+            <div className="flex justify-between w-full font-bold tracking-widest text-[10px] text-gray-400 mb-8 pt-4 pr-10">
               <span>ROUND {round} OF {TOTAL_ROUNDS}</span>
               <span>SCORE: {currentTotalScore}</span>
             </div>
@@ -217,7 +257,11 @@ export default function App() {
                       background: 'linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)' 
                     }}
                     aria-label="Hue"
-                    onChange={(e) => setUserGuess({ ...userGuess, h: parseInt(e.target.value) })}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      setUserGuess(prev => ({ ...prev, h: val }));
+                      playSliderAudio(val / 360);
+                    }}
                   />
                 </div>
 
@@ -233,7 +277,11 @@ export default function App() {
                       background: `linear-gradient(to right, hsl(${userGuess.h}, 0%, ${userGuess.l}%), hsl(${userGuess.h}, 100%, ${userGuess.l}%))` 
                     }}
                     aria-label="Saturation"
-                    onChange={(e) => setUserGuess({ ...userGuess, s: parseInt(e.target.value) })}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      setUserGuess(prev => ({ ...prev, s: val }));
+                      playSliderAudio(val / 100);
+                    }}
                   />
                 </div>
 
@@ -249,7 +297,11 @@ export default function App() {
                       background: `linear-gradient(to right, #000, hsl(${userGuess.h}, ${userGuess.s}%, 50%), #fff)` 
                     }}
                     aria-label="Brightness"
-                    onChange={(e) => setUserGuess({ ...userGuess, l: parseInt(e.target.value) })}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      setUserGuess(prev => ({ ...prev, l: val }));
+                      playSliderAudio(val / 100);
+                    }}
                   />
                 </div>
               </div>
@@ -317,8 +369,15 @@ export default function App() {
             exit={{ opacity: 0, x: -20 }}
             className="flex-1 flex flex-col p-6 overflow-y-auto max-w-md mx-auto w-full"
           >
-            <div className="flex items-center justify-between mb-8">
-              <button onClick={() => setGameState('start')} className="p-2 hover:bg-gray-100 rounded-full transition-colors cursor-pointer" aria-label="Go to start">
+            <div className="flex items-center justify-between mb-8 pr-10">
+              <button 
+                onClick={() => {
+                  sounds.playClick();
+                  setGameState('start');
+                }} 
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors cursor-pointer" 
+                aria-label="Go to start"
+              >
                 <ChevronLeft size={24} />
               </button>
               <h2 className="text-xl font-bold tracking-tight">YOUR SCORE</h2>
