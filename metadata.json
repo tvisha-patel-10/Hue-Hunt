@@ -1,0 +1,5 @@
+{
+  "name": "Hue Hunt",
+  "description": "A minimalist color memory game where you recreate vibrant hues from memory.",
+  "requestFramePermissions": []
+}

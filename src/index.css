@@ -1,0 +1,29 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  body {
+    @apply font-sans bg-[#F8F9FA] text-[#1A1A1A] overflow-hidden;
+  }
+}
+
+input[type="range"] {
+  @apply appearance-none bg-transparent cursor-pointer w-full;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  @apply h-2.5 rounded-full;
+  background: transparent;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  @apply appearance-none bg-black w-5 h-5 rounded-full -mt-[7px] shadow-sm;
+}
+
+.split-reveal {
+  clip-path: inset(0 0 0 0);
+}
