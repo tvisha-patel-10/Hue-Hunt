@@ -38,3 +38,4 @@ npm install
 
 # 3. Start playing
 npm run dev
+```
